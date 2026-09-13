@@ -649,11 +649,24 @@ def _wire_desktop_sinks() -> None:
 _notification_pollers: list = []
 
 
+def _run_notification_poller_in_session_home(stop_event: threading.Event, sid: str, session: dict) -> None:
+    """Bind durable notification work, including shutdown drain, to its session.
+
+    Bare threads do not inherit the home ContextVar. The session is authoritative:
+    compute-host callers may already have reset their own profile override.
+    """
+    token = set_hermes_home_override(_session_home(session))
+    try:
+        _notification_poller_loop(stop_event, sid, session)
+    finally:
+        reset_hermes_home_override(token)
+
+
 def _start_notification_poller(sid: str, session: dict) -> threading.Event:
     """Start the background notification poller for a TUI session (thread name is greppable)."""
     _wire_desktop_sinks()
     stop = threading.Event()
-    t = threading.Thread(target=_notification_poller_loop, args=(stop, sid, session), daemon=True, name=f"tui-notif-poller-{sid}")
+    t = threading.Thread(target=_run_notification_poller_in_session_home, args=(stop, sid, session), daemon=True, name=f"tui-notif-poller-{sid}")
     _notification_pollers[:] = [(s, th) for (s, th) in _notification_pollers if th.is_alive()] + [(stop, t)]
     t.start()
     return stop
